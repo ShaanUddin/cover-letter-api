@@ -782,25 +782,76 @@
 
 
 
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const multer = require('multer');
+const pdf = require('pdf-parse');
+const mammoth = require('mammoth');
+const fs = require('fs');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+
+if (!process.env.GEMINI_API_KEY) {
+  console.error("FATAL ERROR: GEMINI_API_KEY is not defined.");
+  process.exit(1);
+}
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+const upload = multer({ dest: '/tmp' });
 
-// Use CORS - This will allow all origins
 app.use(cors());
+app.use(express.json());
 
-// A simple route to confirm the server is working
 app.get('/', (req, res) => {
-  res.status(200).json({ message: 'Success! The backend is running and reachable.' });
+  res.status(200).json({ status: 'ok', message: 'API is running.' });
 });
 
-// A simple POST route for testing the connection
-app.post('/test-connection', (req, res) => {
-  res.status(200).json({ message: 'POST request successful!' });
+app.post('/generate-cover-letter', upload.single('resume'), async (req, res) => {
+  try {
+    const { jobDescription } = req.body;
+    const resumeFile = req.file;
+
+    if (!jobDescription || !resumeFile) {
+        return res.status(400).json({ error: 'Missing job description or resume file.' });
+    }
+
+    let resumeText = '';
+    const tempPath = resumeFile.path;
+
+    if (resumeFile.mimetype === 'application/pdf') {
+        const dataBuffer = fs.readFileSync(tempPath);
+        const data = await pdf(dataBuffer);
+        resumeText = data.text;
+    } else if (resumeFile.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+        const result = await mammoth.extractRawText({ path: tempPath });
+        resumeText = result.value;
+    } else {
+        fs.unlinkSync(tempPath);
+        return res.status(400).json({ error: 'Unsupported file type. Please use PDF or DOCX.' });
+    }
+
+    fs.unlinkSync(tempPath);
+
+    const prompt = `You are a professional career coach...`; // The full prompt
+
+    const result = await model.generateContent(prompt);
+    const response = result.response;
+    const generatedText = response.text();
+
+    res.json({
+        message: "Cover letter generated successfully!",
+        coverLetter: generatedText
+    });
+
+  } catch (error) {
+    console.error("Error in /generate-cover-letter:", error);
+    res.status(500).json({ error: 'Failed to generate cover letter.' });
+  }
 });
 
 app.listen(PORT, () => {
-  console.log(`Simple test server is listening on port ${PORT}`);
+  console.log(`Server is listening on port ${PORT}`);
 });
