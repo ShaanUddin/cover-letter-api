@@ -387,7 +387,10 @@ const app = express();
 const PORT = process.env.PORT || 3001; 
 const upload = multer({ dest: '/tmp' });
 
-app.use(cors());
+app.use(cors({
+  origin: 'https://letter-genius-build-d261kt6im-shaan-uddins-projects.vercel.app/', // replace with your real Vercel domain
+}));
+
 app.use(express.json());
 
 // --- API Routes ---
